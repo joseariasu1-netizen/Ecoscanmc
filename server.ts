@@ -437,7 +437,7 @@ Calcula con precisión técnica:
 
       const prompt = `Analiza detalladamente esta fotografía. Identifica con exactitud el objeto u objeto residual en la imagen y clasifícalo en su caneca correspondiente según la Resolución 2184 de Colombia. ${userPrompt ? `Contexto o aclaración proporcionada por el usuario: "${userPrompt}"` : ''}`;
 
-      const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      const modelsToTry = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-flash-latest'];
       let lastError: any = null;
       let response: any = null;
 
@@ -530,13 +530,27 @@ Calcula con precisión técnica:
       }
 
       let responseText = response.text.trim();
-      if (responseText.startsWith('```json')) {
-        responseText = responseText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-      } else if (responseText.startsWith('```')) {
-        responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      if (responseText.includes('```')) {
+        const match = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (match && match[1]) {
+          responseText = match[1].trim();
+        } else {
+          responseText = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        }
       }
 
-      const parsedData = JSON.parse(responseText);
+      let parsedData: any = null;
+      try {
+        parsedData = JSON.parse(responseText);
+      } catch {
+        const firstBrace = responseText.indexOf('{');
+        const lastBrace = responseText.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          parsedData = JSON.parse(responseText.slice(firstBrace, lastBrace + 1));
+        } else {
+          throw new Error('Estructura de respuesta no válida.');
+        }
+      }
       parsedData.detectedAt = new Date().toISOString();
       return res.json({ success: true, data: parsedData, source: 'gemini-vision' });
     } else {
@@ -546,9 +560,18 @@ Calcula con precisión técnica:
     }
   } catch (error: any) {
     console.error('Error en /api/classify-waste:', error);
+    let errorDetail = 'Error al procesar la imagen.';
+    if (error?.message) {
+      try {
+        const parsed = JSON.parse(error.message);
+        errorDetail = parsed.error?.message || parsed.message || error.message;
+      } catch {
+        errorDetail = error.message;
+      }
+    }
     return res.status(500).json({
       error: 'No se pudo clasificar el residuo en la imagen.',
-      details: error.message || 'Error de procesamiento',
+      details: errorDetail,
     });
   }
 });

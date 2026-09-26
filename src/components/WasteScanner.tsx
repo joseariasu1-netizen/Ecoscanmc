@@ -269,6 +269,69 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     saveToHistory(preset.analysis);
   };
 
+  // Defensive JSON parser that strips markdown fences, conversational text,
+  // leading/trailing prose or HTML wrappers before attempting JSON.parse.
+  const parseJsonDefensively = <T = any>(rawInput: string): T => {
+    if (!rawInput || typeof rawInput !== 'string') {
+      throw new Error('Respuesta vacía o formato inválido recibido.');
+    }
+
+    let text = rawInput.trim();
+
+    // 1. Strip Markdown code fences if present (```json ... ``` or ``` ...)
+    if (text.includes('```')) {
+      const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      if (codeBlockMatch && codeBlockMatch[1]) {
+        text = codeBlockMatch[1].trim();
+      } else {
+        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      }
+    }
+
+    // 2. Try direct parse first if it looks clean
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      // Proceed to extract candidate JSON object or array bounds
+    }
+
+    // 3. Scan for outer JSON object {...} or array [...]
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    const firstBracket = text.indexOf('[');
+    const lastBracket = text.lastIndexOf(']');
+
+    let candidateSubstring = '';
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      if (firstBracket !== -1 && firstBracket < firstBrace && lastBracket > lastBrace) {
+        candidateSubstring = text.slice(firstBracket, lastBracket + 1);
+      } else {
+        candidateSubstring = text.slice(firstBrace, lastBrace + 1);
+      }
+    } else if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+      candidateSubstring = text.slice(firstBracket, lastBracket + 1);
+    }
+
+    if (candidateSubstring) {
+      try {
+        return JSON.parse(candidateSubstring) as T;
+      } catch (nestedErr) {
+        // Attempt minor cleanup: trailing commas
+        const cleaned = candidateSubstring
+          .replace(/,\s*([}\]])/g, '$1');
+        try {
+          return JSON.parse(cleaned) as T;
+        } catch {
+          // Fall through
+        }
+      }
+    }
+
+    // If completely unparseable, throw descriptive error
+    throw new Error('No se pudo encontrar una estructura JSON válida en la respuesta.');
+  };
+
   const processImageAnalysis = async (base64Image: string, customPrompt?: string) => {
     setSelectedImage(base64Image);
     setIsAnalyzing(true);
@@ -296,7 +359,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
       const rawText = await response.text();
       let resData: any = null;
       try {
-        resData = JSON.parse(rawText);
+        resData = parseJsonDefensively(rawText);
       } catch (jsonErr) {
         console.error('Non-JSON response received:', rawText.slice(0, 300));
         if (response.status === 413 || rawText.includes('too large') || rawText.includes('Payload')) {
@@ -313,13 +376,30 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         onScanCompleted(resData.data);
         saveToHistory(resData.data);
       } else {
-        throw new Error(resData.details || resData.error || 'No se pudo clasificar el residuo.');
+        let msg = 'No se pudo clasificar el residuo con la imagen actual.';
+        if (resData.error && typeof resData.error === 'string') {
+          msg = resData.error;
+        } else if (resData.details) {
+          if (typeof resData.details === 'string') {
+            try {
+              const parsed = JSON.parse(resData.details);
+              msg = parsed.error?.message || parsed.message || resData.details;
+            } catch {
+              msg = resData.details;
+            }
+          } else if (typeof resData.details === 'object') {
+            msg = resData.details.error?.message || resData.details.message || JSON.stringify(resData.details);
+          }
+        }
+        throw new Error(msg);
       }
     } catch (err: any) {
       console.error('Error analizando imagen:', err);
-      setErrorMessage(
-        err.message || 'No fue posible identificar con certeza el residuo en la imagen. Intenta con mejor iluminación, enfocando más de cerca o agregando una pista.'
-      );
+      let displayError = err?.message;
+      if (typeof displayError !== 'string' || displayError === '[object Object]') {
+        displayError = 'No fue posible identificar con certeza el residuo en la imagen. Intenta con mejor iluminación, enfocando más de cerca o agregando una pista rápida.';
+      }
+      setErrorMessage(displayError);
     } finally {
       setIsAnalyzing(false);
     }
