@@ -379,156 +379,164 @@ app.post('/api/classify-waste', async (req, res) => {
       return res.status(400).json({ error: 'La imagen base64 es obligatoria.' });
     }
 
-    // Clean base64 header if present
-    const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+    // Extract exact MIME type and clean base64 data
+    let finalMimeType = mimeType;
+    if (imageBase64.startsWith('data:')) {
+      const match = imageBase64.match(/^data:([^;]+);base64,/);
+      if (match && match[1]) {
+        finalMimeType = match[1];
+      }
+    }
+    const cleanBase64 = imageBase64.includes(';base64,')
+      ? imageBase64.split(';base64,')[1].trim()
+      : imageBase64.trim();
 
     const ai = getGeminiClient();
 
     if (ai) {
       const systemInstruction = `
-Eres un Ingeniero Ambiental experto en Visión por Computadora, Economía Circular y Gestión Integral de Residuos Urbanos.
-Tu misión es analizar con extrema precisión el residuo u objeto en la foto y clasificarlo de acuerdo con el CÓDIGO OFICIAL NACIONAL DE COLORES DE RESIDUOS:
+Eres un Ingeniero Ambiental experto en Visión Artificial, Economía Circular y Gestión Integral de Residuos Urbanos bajo el CÓDIGO OFICIAL NACIONAL DE COLORES DE COLOMBIA (Resolución 2184 de 2019) y la normativa de Medellín (Emvarias).
 
-1. CANECA BLANCA (binType: "blanca"):
-   - Residuos APROVECHABLES LIMPIOS Y SECOS: Plásticos (botellas PET, envases PEAD, tapas), botellas y frascos de vidrio limpios, metales (latas de aluminio, conservas, hojalata), papel y cartón limpios y secos (cajas, periódico, hojas, revistas, cubetas de huevos limpias).
+TU TAREA PRINCIPAL:
+1. Analiza cuidadosamente la imagen e IDENTIFICA EL OBJETO O RESIDUO PRINCIPAL en primer plano.
+2. Ignora las manos de las personas, mesas, pisos, fondos o paredes. Concéntrate en el residuo específico.
+3. Si el usuario proporcionó una pista o descripción textual, úsala como contexto prioritario para desambiguar el material.
+4. NUNCA asumas por defecto que el objeto es una botella de plástico. Identifica con exactitud lo que ves:
+   - ¿Es una fruta, verdura, comida, cáscara, hueso, borra de café, poda? -> CANECA VERDE (Orgánicos aprovechables).
+   - ¿Es una pila, batería, cable, cargador, bombillo, medicamento, aerosol tóxico, jeringa? -> CANECA ROJA / ESPECIAL (Peligrosos / RAEE / Posconsumo).
+   - ¿Es servilleta usada, papel higiénico, cartón/papel grasoso o sucio (caja de pizza sucia), paquete metalizado de papas fritas/snacks, colilla, icopor con grasa, plástico sucio de un solo uso? -> CANECA NEGRA (No aprovechables / ordinarios).
+   - ¿Es una botella plástica limpia, vaso desechable limpio, lata de gaseosa/cerveza de aluminio, lata de atún limpia, caja de cartón limpia, periódico, botella o frasco de vidrio limpio, Tetra Pak escurrido? -> CANECA BLANCA (Aprovechables limpios).
 
-2. CANECA VERDE (binType: "verde"):
-   - Residuos ORGÁNICOS APROVECHABLES: Restos de comida cruda y cocida, cáscaras de frutas y verduras, posos de café, hojas secas, podas de jardín, bolsas de té.
+REGLAS DE CLASIFICACIÓN DE CANECAS:
+- "blanca": CANECA BLANCA (Residuos Aprovechables Limpios y Secos: plástico, vidrio, metales, papel y cartón limpios).
+- "verde": CANECA VERDE (Residuos Orgánicos Aprovechables: restos de comida, cáscaras de frutas/verduras, posos de café, podas, jardinería).
+- "negra": CANECA NEGRA (Residuos No Aprovechables: papel higiénico, servilletas usadas, papeles y cartones contaminados con grasa/comida, envolturas metalizadas de snacks, colillas, icopor sucio).
+- "roja_especial": CANECA ROJA / ESPECIAL (Residuos Peligrosos, Posconsumo y RAEE: pilas, baterías, bombillos ahorradores, cables, electrónicos, medicamentos vencidos, envases de agroquímicos/aerosoles).
 
-3. CANECA NEGRA (binType: "negra"):
-   - Residuos NO APROVECHABLES / ORDINARIOS: Papel higiénico, servilletas y toallas de papel usadas, papeles y cartones grasosos o sucios con comida (ej. caja de pizza con grasa), paquetes y bolsas metalizadas de snacks/frituras, colillas de cigarrillo, icopor sucio, plásticos contaminados o de un solo uso no reciclable.
-
-4. CANECA ROJA / ESPECIAL (binType: "roja_especial"):
-   - RESIDUOS PELIGROSOS / POSCONSUMO / RAEE: Pilas y baterías alcalinas/litio, bombillos fluorescentes/ahorradores, medicamentos vencidos, residuos hospitalarios/biológicos (jeringas, gasas con sangre), envases de insecticidas o químicos, aparatos eléctricos/electrónicos (cables, cargadores, celulares).
-
-Calcula también:
-- Porcentaje de reciclabilidad (0 a 100).
-- Nivel de reciclabilidad: "Alta", "Media", "Baja" o "No Reciclable".
-- Pasos de preparación claros y prácticos (ej: 1. Vaciar contenido, 2. Enjuagar, 3. Aplastar, 4. Depositar en caneca blanca).
-- Ahorro ambiental estimado (gramos de CO2 prevenidos, litros de agua ahorrados, vatios-hora de energía salvados).
-- Puntos ecológicos (EcoPuntos) entre 10 y 50 según el impacto del residuo.
+Calcula con precisión técnica:
+- wasteName: Nombre común preciso en español del residuo (ej. "Cáscara de Plátano", "Lata de Cerveza de Aluminio", "Batería AA Alcalina", "Servilleta de Papel Usada", "Envase de Yogur", "Caja de Pizza con Grasa").
+- materialType: Tipo técnico de material (ej. "Materia orgánica vegetal", "Aluminio 100% reciclable", "Dióxido de manganeso y zinc", "Celulosa contaminada", "Polipropileno PP #5").
+- recyclabilityScore: 0 a 100.
+- recyclabilityLevel: "Alta", "Media", "Baja" o "No Reciclable".
+- preparationSteps: 2 a 4 pasos lógicos y accionables.
+- environmentalSavings: { co2SavedGrams, waterSavedLiters, energySavedWh }.
+- ecoPoints: entre 10 y 50 según el impacto.
 `;
 
-      const prompt = `Analiza la imagen adjunta. Identifica el objeto/residuo con detalle técnico y clasifícalo en su caneca correspondiente. ${userPrompt ? `Contexto adicional del usuario: ${userPrompt}` : ''}`;
+      const prompt = `Analiza detalladamente esta fotografía. Identifica con exactitud el objeto u objeto residual en la imagen y clasifícalo en su caneca correspondiente según la Resolución 2184 de Colombia. ${userPrompt ? `Contexto o aclaración proporcionada por el usuario: "${userPrompt}"` : ''}`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                data: cleanBase64,
-                mimeType: mimeType,
-              },
+      const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      let lastError: any = null;
+      let response: any = null;
+
+      for (const modelCandidate of modelsToTry) {
+        try {
+          response = await ai.models.generateContent({
+            model: modelCandidate,
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    data: cleanBase64,
+                    mimeType: finalMimeType,
+                  },
+                },
+                {
+                  text: prompt,
+                },
+              ],
             },
-            {
-              text: prompt,
-            },
-          ],
-        },
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              wasteName: { type: Type.STRING, description: 'Nombre descriptivo del residuo (ej. Botella de Plástico PET)' },
-              materialType: { type: Type.STRING, description: 'Tipo específico de material (ej. Polietileno Tereftalato PET #1)' },
-              binType: {
-                type: Type.STRING,
-                description: 'Debe ser estrictamente: "blanca", "verde", "negra" o "roja_especial"',
-              },
-              binName: { type: Type.STRING, description: 'Nombre formal de la caneca (ej. Caneca Blanca - Residuos Aprovechables)' },
-              binColorHex: { type: Type.STRING, description: 'Código hex representativo (#FFFFFF, #16a34a, #1f2937, #dc2626)' },
-              binDescription: { type: Type.STRING, description: 'Por qué va en esta caneca y qué características tiene' },
-              recyclabilityScore: { type: Type.NUMBER, description: 'Puntaje de 0 a 100 de reciclabilidad o aprovechamiento' },
-              recyclabilityLevel: { type: Type.STRING, description: 'Alta, Media, Baja o No Reciclable' },
-              preparationSteps: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: 'Lista de 2 a 4 pasos de preparación antes de depositar'
-              },
-              practicalTips: { type: Type.STRING, description: 'Consejo práctico para el ciudadano' },
-              circularEconomyIdea: { type: Type.STRING, description: 'Idea o proceso de economía circular aplicable al material' },
-              hazardWarning: { type: Type.STRING, description: 'Advertencia de seguridad si aplica (opcional)' },
-              environmentalSavings: {
+            config: {
+              systemInstruction,
+              responseMimeType: 'application/json',
+              responseSchema: {
                 type: Type.OBJECT,
                 properties: {
-                  co2SavedGrams: { type: Type.NUMBER, description: 'Gramos de CO2 prevenidos' },
-                  waterSavedLiters: { type: Type.NUMBER, description: 'Litros de agua ahorrados' },
-                  energySavedWh: { type: Type.NUMBER, description: 'Vatios hora de energía ahorrados' }
+                  wasteName: { type: Type.STRING, description: 'Nombre descriptivo y exacto del residuo en español' },
+                  materialType: { type: Type.STRING, description: 'Tipo específico de material' },
+                  binType: {
+                    type: Type.STRING,
+                    description: 'Estrictamente: "blanca", "verde", "negra" o "roja_especial"',
+                  },
+                  binName: { type: Type.STRING, description: 'Nombre formal de la caneca' },
+                  binColorHex: { type: Type.STRING, description: 'Código hex representativo (#FFFFFF, #16a34a, #1f2937, #dc2626)' },
+                  binDescription: { type: Type.STRING, description: 'Por qué va en esta caneca' },
+                  recyclabilityScore: { type: Type.NUMBER, description: 'Puntaje de 0 a 100 de reciclabilidad o aprovechamiento' },
+                  recyclabilityLevel: { type: Type.STRING, description: 'Alta, Media, Baja o No Reciclable' },
+                  preparationSteps: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: '2 a 4 pasos de preparación'
+                  },
+                  practicalTips: { type: Type.STRING, description: 'Consejo práctico ciudadano' },
+                  circularEconomyIdea: { type: Type.STRING, description: 'Idea de economía circular' },
+                  hazardWarning: { type: Type.STRING, description: 'Advertencia si aplica' },
+                  environmentalSavings: {
+                    type: Type.OBJECT,
+                    properties: {
+                      co2SavedGrams: { type: Type.NUMBER },
+                      waterSavedLiters: { type: Type.NUMBER },
+                      energySavedWh: { type: Type.NUMBER }
+                    },
+                    required: ['co2SavedGrams', 'waterSavedLiters', 'energySavedWh']
+                  },
+                  ecoPoints: { type: Type.NUMBER },
+                  confidenceScore: { type: Type.NUMBER }
                 },
-                required: ['co2SavedGrams', 'waterSavedLiters', 'energySavedWh']
+                required: [
+                  'wasteName',
+                  'materialType',
+                  'binType',
+                  'binName',
+                  'binColorHex',
+                  'binDescription',
+                  'recyclabilityScore',
+                  'recyclabilityLevel',
+                  'preparationSteps',
+                  'practicalTips',
+                  'environmentalSavings',
+                  'ecoPoints',
+                  'confidenceScore'
+                ],
               },
-              ecoPoints: { type: Type.NUMBER, description: 'EcoPuntos otorgados (10 a 50)' },
-              confidenceScore: { type: Type.NUMBER, description: 'Confianza de la IA (0.85 a 0.99)' }
             },
-            required: [
-              'wasteName',
-              'materialType',
-              'binType',
-              'binName',
-              'binColorHex',
-              'binDescription',
-              'recyclabilityScore',
-              'recyclabilityLevel',
-              'preparationSteps',
-              'practicalTips',
-              'environmentalSavings',
-              'ecoPoints',
-              'confidenceScore'
-            ],
-          },
-        },
-      });
+          });
 
-      const responseText = response.text || '{}';
+          if (response && response.text) {
+            break;
+          }
+        } catch (modelErr: any) {
+          console.warn(`Intento con modelo ${modelCandidate} falló:`, modelErr.message);
+          lastError = modelErr;
+          // Small pause before trying next candidate
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+
+      if (!response || !response.text) {
+        throw lastError || new Error('No se obtuvo respuesta del servicio de visión artificial.');
+      }
+
+      let responseText = response.text.trim();
+      if (responseText.startsWith('```json')) {
+        responseText = responseText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (responseText.startsWith('```')) {
+        responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+
       const parsedData = JSON.parse(responseText);
       parsedData.detectedAt = new Date().toISOString();
       return res.json({ success: true, data: parsedData, source: 'gemini-vision' });
     } else {
-      // Intelligent Rule-Based Vision Heuristic Fallback (when API key is pending or in offline demo)
-      const fallbackResults = [
-        {
-          wasteName: 'Botella de Plástico Transparente (PET)',
-          materialType: 'Polietileno Tereftalato (PET #1)',
-          binType: 'blanca',
-          binName: 'Caneca Blanca - Residuos Aprovechables',
-          binColorHex: '#ffffff',
-          binDescription: 'Material 100% reciclable apto para reintegrarse en la cadena de botellas grado alimenticio o fibra textil poliéster.',
-          recyclabilityScore: 95,
-          recyclabilityLevel: 'Alta',
-          preparationSteps: [
-            'Vacía cualquier residuo de líquido.',
-            'Enjuaga con una pequeña cantidad de agua para eliminar restos dulces.',
-            'Aplasta la botella para optimizar el espacio de acopio.',
-            'Coloca la tapa plástica enroscada (también es reciclable).'
-          ],
-          practicalTips: 'Entrégala limpia y seca a tu reciclador de oficio o deposítala en la caneca blanca de la estación ecológica.',
-          circularEconomyIdea: 'Se procesa en escamas (flakes) para convertirse en nuevas botellas rPET o prendas deportivas.',
-          environmentalSavings: {
-            co2SavedGrams: 120,
-            waterSavedLiters: 3.5,
-            energySavedWh: 85
-          },
-          ecoPoints: 30,
-          confidenceScore: 0.94,
-          detectedAt: new Date().toISOString()
-        }
-      ];
-
-      return res.json({
-        success: true,
-        data: fallbackResults[0],
-        source: 'heuristic-engine',
-        notice: 'Procesado con el motor de visión y clasificación de residuos.'
+      return res.status(500).json({
+        error: 'El servicio de IA no está configurado (falta GEMINI_API_KEY).',
       });
     }
   } catch (error: any) {
     console.error('Error en /api/classify-waste:', error);
     return res.status(500).json({
-      error: 'Error al procesar la imagen con visión artificial.',
-      details: error.message,
+      error: 'No se pudo clasificar el residuo en la imagen.',
+      details: error.message || 'Error de procesamiento',
     });
   }
 });

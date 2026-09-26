@@ -40,6 +40,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
   const [preparationChecked, setPreparationChecked] = useState<{ [key: number]: boolean }>({});
   const [pointsClaimed, setPointsClaimed] = useState<boolean>(false);
   const [scanHistory, setScanHistory] = useState<WasteAnalysisResult[]>([]);
+  const [userHint, setUserHint] = useState<string>('');
 
   // Camera state for live webcam
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -216,13 +217,15 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     saveToHistory(preset.analysis);
   };
 
-  const processImageAnalysis = async (base64Image: string) => {
+  const processImageAnalysis = async (base64Image: string, customPrompt?: string) => {
     setSelectedImage(base64Image);
     setIsAnalyzing(true);
     setErrorMessage(null);
     setAnalysisResult(null);
     setPreparationChecked({});
     setPointsClaimed(false);
+
+    const activePrompt = customPrompt !== undefined ? customPrompt : userHint;
 
     try {
       const response = await fetch('/api/classify-waste', {
@@ -231,6 +234,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         body: JSON.stringify({
           imageBase64: base64Image,
           mimeType: 'image/jpeg',
+          userPrompt: activePrompt.trim() || undefined,
         }),
       });
 
@@ -241,16 +245,13 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         onScanCompleted(resData.data);
         saveToHistory(resData.data);
       } else {
-        throw new Error(resData.error || 'Error en el análisis de la imagen');
+        throw new Error(resData.details || resData.error || 'No se pudo clasificar el residuo.');
       }
     } catch (err: any) {
       console.error('Error analizando imagen:', err);
-      setErrorMessage('Hubo un error al clasificar la foto. Intentando con motor alternativo...');
-      // Fallback to demo PET bottle if offline or error
-      const fallback = SAMPLE_PRESETS[0].analysis;
-      setAnalysisResult(fallback);
-      onScanCompleted(fallback);
-      saveToHistory(fallback);
+      setErrorMessage(
+        err.message || 'No fue posible identificar con certeza el residuo en la imagen. Intenta con mejor iluminación, enfocando más de cerca o agregando una pista.'
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -342,7 +343,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         <div className="relative z-10 space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-xs font-semibold text-emerald-100 border border-white/20">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Módulo de Visión Artificial Gemini 3.7</span>
+            <span>Módulo de Visión Artificial Gemini 3.8</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Reconocimiento y Separación Inteligente de Residuos
@@ -529,19 +530,102 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
           </div>
         )}
 
+        {/* Optional context hint to guide recognition */}
+        <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2">
+          <div className="flex items-center justify-between">
+            <label htmlFor="input-user-hint" className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <span>💡 ¿Deseas agregar una pista o detalle para ayudar a la IA?</span>
+              <span className="text-[10px] font-normal text-slate-500">(Opcional)</span>
+            </label>
+            {userHint && (
+              <button
+                type="button"
+                onClick={() => setUserHint('')}
+                className="text-[10px] text-slate-400 hover:text-slate-600 font-semibold cursor-pointer"
+              >
+                Limpiar pista
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              id="input-user-hint"
+              type="text"
+              value={userHint}
+              onChange={(e) => setUserHint(e.target.value)}
+              placeholder="Ej: cáscara de banano, lata de cerveza, pila AA, vaso de yogur, servilleta con grasa..."
+              className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+            />
+            {selectedImage && !isAnalyzing && (
+              <button
+                type="button"
+                onClick={() => processImageAnalysis(selectedImage)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors cursor-pointer"
+              >
+                Reanalizar
+              </button>
+            )}
+          </div>
+          {/* Quick chip buttons */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-[10px] text-slate-400 self-center mr-0.5">Pistas rápidas:</span>
+            {[
+              { label: '🍎 Orgánico / Comida', hint: 'residuo orgánico / resto de comida o cáscara' },
+              { label: '🧴 Plástico Limpio', hint: 'envase o botella de plástico limpia' },
+              { label: '🥫 Lata / Metal', hint: 'lata de metal o aluminio' },
+              { label: '🍾 Vidrio', hint: 'botella o frasco de vidrio' },
+              { label: '📦 Cartón / Papel', hint: 'papel o cartón limpio y seco' },
+              { label: '🔋 Pila / RAEE', hint: 'pila, batería o residuo electrónico' },
+              { label: '🧻 Servilleta / Ordinario', hint: 'servilleta usada o papel con grasa' },
+            ].map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                onClick={() => {
+                  setUserHint(chip.hint);
+                  if (selectedImage && !isAnalyzing) {
+                    processImageAnalysis(selectedImage, chip.hint);
+                  }
+                }}
+                className={`text-[11px] px-2 py-0.5 rounded-lg border transition-colors cursor-pointer ${
+                  userHint === chip.hint
+                    ? 'bg-emerald-100 border-emerald-400 text-emerald-800 font-bold'
+                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Generic Error message */}
         {errorMessage && !permissionGuidanceOpen && (
-          <div className="flex items-center justify-between gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-            <div className="flex items-center gap-2.5">
-              <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600" />
-              <span>{errorMessage}</span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-amber-50 border border-amber-300 rounded-2xl text-amber-900 text-sm shadow-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+              <div className="space-y-0.5">
+                <span className="font-bold text-amber-950">Aviso de Reconocimiento:</span>
+                <p className="text-xs text-amber-800">{errorMessage}</p>
+              </div>
             </div>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-amber-600 hover:text-amber-900 text-xs font-bold"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              {selectedImage && (
+                <button
+                  type="button"
+                  onClick={() => processImageAnalysis(selectedImage)}
+                  className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+                >
+                  Reintentar
+                </button>
+              )}
+              <button
+                onClick={() => setErrorMessage(null)}
+                className="text-amber-600 hover:text-amber-900 text-xs font-bold p-1 rounded-md hover:bg-amber-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
 
