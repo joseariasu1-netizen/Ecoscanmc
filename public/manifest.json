@@ -1,0 +1,18 @@
+{
+  "short_name": "EcoScan",
+  "name": "EcoScan & Ciudad Limpia - Gestión Inteligente de Residuos",
+  "description": "Reconocimiento de residuos por IA, reportes ciudadanos y mapa de centros de acopio.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#f0fdf4",
+  "theme_color": "#16a34a",
+  "display": "standalone",
+  "orientation": "portrait"
+}

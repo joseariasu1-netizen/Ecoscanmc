@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+/* Ocultar definitivamente botones de guion Word y docs técnicos */
+#btn-download-word-script-nav,
+#btn-open-arch-docs,
+[id*="word-script"],
+[id*="arch-docs"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}

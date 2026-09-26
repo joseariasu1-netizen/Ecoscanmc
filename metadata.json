@@ -1,0 +1,6 @@
+{
+  "name": "EcoScan & Ciudad Limpia",
+  "description": "Plataforma PWA e IA de Economía Circular para la I.E. Rafael Uribe Uribe y la Alcaldía de Medellín, con reconocimiento de residuos, sistema de EcoMonedas canjeables y campaña Mi Metro Cuadrado.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
