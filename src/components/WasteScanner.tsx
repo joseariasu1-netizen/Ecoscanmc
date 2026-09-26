@@ -164,16 +164,69 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     setIsCameraActive(false);
   };
 
-  const capturePhotoFromCamera = () => {
+  // Helper to resize/compress high-res mobile photos before sending to Gemini Vision
+  const resizeImageIfNeeded = (dataUrl: string, maxWidth = 1280, maxHeight = 1280): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 1000000) {
+          resolve(dataUrl);
+          return;
+        }
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
+  const capturePhotoFromCamera = async () => {
     if (!videoRef.current) return;
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
+      const maxDim = 1280;
+      let w = videoRef.current.videoWidth || 640;
+      let h = videoRef.current.videoHeight || 480;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.88);
+        const base64 = canvas.toDataURL('image/jpeg', 0.85);
         stopCamera();
         processImageAnalysis(base64);
       }
@@ -199,11 +252,13 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      processImageAnalysis(base64);
+    reader.onload = async (event) => {
+      const rawBase64 = event.target?.result as string;
+      const optimizedBase64 = await resizeImageIfNeeded(rawBase64);
+      processImageAnalysis(optimizedBase64);
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSelectPreset = (preset: SamplePreset) => {

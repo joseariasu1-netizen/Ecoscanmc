@@ -1,43 +1,17 @@
-const CACHE_NAME = 'ecoscan-cache-v3';
-
+// EcoScan Service Worker - Unregister & Cache Purge to prevent stale builds
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(keys.map((key) => caches.delete(key)));
-    })
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  // Let API requests pass straight through to network
-  if (event.request.url.includes('/api/')) {
-    return;
-  }
-
-  // Network-first strategy to always show fresh content
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (
-          response &&
-          response.status === 200 &&
-          response.type === 'basic' &&
-          !event.request.url.includes('chrome-extension')
-        ) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        return caches.match(event.request);
-      })
-  );
+  // Always go straight to network - never serve stale HTML or JS
+  event.respondWith(fetch(event.request));
 });
