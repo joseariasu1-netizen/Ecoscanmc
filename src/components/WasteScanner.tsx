@@ -376,28 +376,35 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         onScanCompleted(resData.data);
         saveToHistory(resData.data);
       } else {
-        let msg = 'No se pudo clasificar el residuo con la imagen actual.';
-        if (resData.error && typeof resData.error === 'string') {
-          msg = resData.error;
-        } else if (resData.details) {
-          if (typeof resData.details === 'string') {
-            try {
-              const parsed = JSON.parse(resData.details);
-              msg = parsed.error?.message || parsed.message || resData.details;
-            } catch {
-              msg = resData.details;
-            }
-          } else if (typeof resData.details === 'object') {
-            msg = resData.details.error?.message || resData.details.message || JSON.stringify(resData.details);
+        let msg = '';
+        if (resData.details && typeof resData.details === 'string') {
+          try {
+            const parsed = JSON.parse(resData.details);
+            msg = parsed.error?.message || parsed.message || resData.details;
+          } catch {
+            msg = resData.details;
           }
+        } else if (resData.details && typeof resData.details === 'object') {
+          msg = resData.details.error?.message || resData.details.message || JSON.stringify(resData.details);
+        } else if (resData.error && typeof resData.error === 'string') {
+          msg = resData.error;
+        }
+
+        // Simplify technical API quota/rate-limit errors into clear advice
+        if (msg.includes('exceeded your current quota') || msg.includes('RESOURCE_EXHAUSTED')) {
+          msg = 'Límite de solicitudes por minuto alcanzado temporalmente. Espera unos segundos y presiona "Reintentar".';
+        } else if (msg.includes('experiencing high demand') || msg.includes('UNAVAILABLE')) {
+          msg = 'El servidor de IA tiene alta demanda en este momento. Por favor presiona "Reintentar".';
+        } else if (!msg || msg.trim().length === 0 || msg === 'No se pudo clasificar el residuo en la imagen.') {
+          msg = 'No fue posible identificar con claridad el residuo en la imagen. Intenta con mejor iluminación, un encuadre más cercano o selecciona una pista rápida abajo.';
         }
         throw new Error(msg);
       }
     } catch (err: any) {
       console.error('Error analizando imagen:', err);
       let displayError = err?.message;
-      if (typeof displayError !== 'string' || displayError === '[object Object]') {
-        displayError = 'No fue posible identificar con certeza el residuo en la imagen. Intenta con mejor iluminación, enfocando más de cerca o agregando una pista rápida.';
+      if (!displayError || typeof displayError !== 'string' || displayError === '[object Object]' || displayError.trim().length === 0 || displayError.includes('No se pudo clasificar el residuo con la imagen actual.')) {
+        displayError = 'No fue posible identificar con claridad el residuo en la imagen. Intenta con mejor iluminación, un encuadre más cercano o selecciona una de las pistas rápidas.';
       }
       setErrorMessage(displayError);
     } finally {
