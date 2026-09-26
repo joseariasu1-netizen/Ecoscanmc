@@ -865,6 +865,21 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// JSON Error Handler for /api/* routes to guarantee JSON response
+app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('API Error Handler intercepted:', err);
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({
+      error: 'La imagen enviada supera el tamaño permitido.',
+      details: 'Por favor intenta tomar la foto con la app o subir una versión más ligera.',
+    });
+  }
+  return res.status(err.status || 500).json({
+    error: err.message || 'Error interno en el servidor.',
+    details: err.details || undefined,
+  });
+});
+
 // -------------------------------------------------------------
 // VITE MIDDLEWARE & STATIC SERVING
 // -------------------------------------------------------------

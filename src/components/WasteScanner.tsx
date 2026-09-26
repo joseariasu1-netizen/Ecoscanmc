@@ -164,18 +164,14 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     setIsCameraActive(false);
   };
 
-  // Helper to resize/compress high-res mobile photos before sending to Gemini Vision
-  const resizeImageIfNeeded = (dataUrl: string, maxWidth = 1280, maxHeight = 1280): Promise<string> => {
+  // Helper to resize/compress photos before sending to Gemini Vision
+  // Kept well under Cloud Run payload limits (< 1.5MB base64 string)
+  const resizeImageIfNeeded = (dataUrl: string, maxWidth = 1024, maxHeight = 1024): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         let width = img.width;
         let height = img.height;
-
-        if (width <= maxWidth && height <= maxHeight && dataUrl.length < 1000000) {
-          resolve(dataUrl);
-          return;
-        }
 
         if (width > height) {
           if (width > maxWidth) {
@@ -198,7 +194,8 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
           return;
         }
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
+        // Use 0.8 quality to ensure crisp recognition while keeping size ~150KB-400KB
+        resolve(canvas.toDataURL('image/jpeg', 0.80));
       };
       img.onerror = () => resolve(dataUrl);
       img.src = dataUrl;
@@ -209,7 +206,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     if (!videoRef.current) return;
     try {
       const canvas = document.createElement('canvas');
-      const maxDim = 1280;
+      const maxDim = 1024;
       let w = videoRef.current.videoWidth || 640;
       let h = videoRef.current.videoHeight || 480;
       if (w > maxDim || h > maxDim) {
@@ -226,7 +223,7 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.85);
+        const base64 = canvas.toDataURL('image/jpeg', 0.80);
         stopCamera();
         processImageAnalysis(base64);
       }
@@ -285,7 +282,10 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
     try {
       const response = await fetch('/api/classify-waste', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
         body: JSON.stringify({
           imageBase64: base64Image,
           mimeType: 'image/jpeg',
@@ -293,7 +293,20 @@ export const WasteScanner: React.FC<WasteScannerProps> = ({
         }),
       });
 
-      const resData = await response.json();
+      const rawText = await response.text();
+      let resData: any = null;
+      try {
+        resData = JSON.parse(rawText);
+      } catch (jsonErr) {
+        console.error('Non-JSON response received:', rawText.slice(0, 300));
+        if (response.status === 413 || rawText.includes('too large') || rawText.includes('Payload')) {
+          throw new Error('La imagen capturada es demasiado pesada para la red. Intenta tomarla de nuevo para que se optimice automáticamente.');
+        } else if (response.status === 504 || rawText.includes('Gateway') || rawText.includes('Timeout')) {
+          throw new Error('El servidor tardó en responder. Por favor presiona "Reintentar".');
+        } else {
+          throw new Error('La conexión temporalmente no pudo procesar la solicitud. Por favor intenta de nuevo.');
+        }
+      }
 
       if (response.ok && resData.data) {
         setAnalysisResult(resData.data);
