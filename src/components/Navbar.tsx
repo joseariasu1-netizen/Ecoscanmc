@@ -12,6 +12,7 @@ import {
   Layers,
   Coins,
   Square,
+  FileText,
 } from 'lucide-react';
 import { IERafaelUribeUribeShield } from './IERafaelUribeUribeShield';
 import { UserEcoProfile } from '../types';
@@ -180,6 +181,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-[9px] text-amber-800 font-bold uppercase">Monedas</span>
               </div>
             </button>
+
+            {/* Botón Descargar Proyecto Word (.docx) */}
+            <a
+              id="btn-download-word-project"
+              href="/Proyecto_EcoScan_Medellin_Completo.docx"
+              download="Proyecto_EcoScan_Medellin_Completo.docx"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 hover:text-blue-900 border border-blue-200 rounded-xl text-xs font-bold transition-all shadow-xs"
+              title="Descargar documento completo del proyecto EcoScan en formato Word (.docx)"
+            >
+              <FileText className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="hidden sm:inline">Proyecto en Word</span>
+              <span className="sm:hidden">Word</span>
+            </a>
 
             {/* PWA Install Button */}
             {isInstallable && (
